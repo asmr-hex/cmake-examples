@@ -1,0 +1,84 @@
+#! /usr/bin/env bash
+
+BUILD=false
+UPDATE=false
+EXAMPLE_DIR=""
+
+function usage {
+  echo "'run' starts a dockerized dev environment, updates container registry, or builds examples using cmake"
+  echo ""
+  echo "Usage: run [<command>]"
+  echo ""
+  echo "  build <example-name>   builds example src using cmake (inside dev container)"
+  echo "  update                 builds and pushes the dev envireonment Docker container (must run on host)"
+}
+
+function build_src_with_cmake {
+  pushd $EXAMPLE_DIR
+  rm -rf build
+  cmake -S . -B build     # generate build files
+  cmake --build build -v  # build src from build files
+  popd
+}
+
+function run_container {
+  docker run \
+         -it \
+         --rm \
+         --pull always \
+         -v "$PWD":/cmake-examples \
+         ghcr.io/asmr-hex/cmake-examples/dev:latest \
+         /bin/bash
+}
+
+function build_and_push_container {
+  # build container image
+  docker build -t ghcr.io/asmr-hex/cmake-examples/dev:latest .
+
+  # login to github container registry
+  pass show github/registry | docker login ghcr.io --username asmr-hex --password-stdin
+
+  # push to github container registry
+  docker push ghcr.io/asmr-hex/cmake-examples/dev:latest
+}
+
+function run {
+  if [ "$UPDATE" = true ]
+  then
+    build_and_push_container
+    exit 0
+  fi
+
+  # run build if specified
+  if [ "$BUILD" = true ]
+  then
+    build_src_with_cmake
+    exit 0
+  fi
+
+
+  # otherwise run container
+  run_container
+}
+
+function parse_args {
+  while [[ $# -gt 0 ]]
+  do
+    local next_arg="$1"
+    case $next_arg in
+      build)
+        BUILD=true
+        EXAMPLE_DIR="$2"
+        shift
+        shift
+        ;;
+      update)
+        UPDATE=true
+        shift
+        ;;
+    esac
+  done
+}
+
+parse_args $@
+run
